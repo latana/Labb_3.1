@@ -2,223 +2,113 @@
 
 namespace controller;
 
-require_once 'HTMLPageView.php';
+require_once 'View/view.php';
+require_once 'Model/model.php';
 
 	class Controller{
 		
 		/**
-		 * @var string
+		 * innehåller klassen Model
 		 */
-		private $userName;
+		
+		private $classModel;
 		
 		/**
-		 * @var string
+		 * innehåller klassen View
 		 */
-		private $passWord;
-		
-		/**
-		 * @var string
-		 */
-		private $user;
-		
-		/**
-		 * @var string
-		 */
-		
-		private $pass;
-		
-		/**
-		 * @var string
-		 */
-		public static $userID ="userID";
-		
-		/**
-		 * @var string
-		 */
-		public static $passID ="passID";
-		
-		/**
-		 * @var string
-		 */
-		public $cookieUser = "cookieUser";
-		
-		/**
-		 * @var string
-		 */
-		public $cookiePass = "cookiePass";
-		
-		/**
-		 * @var string
-		 */
-		public $safeKey = "safeKey";
-		
-		/**
-		 * @var string
-		 */
-		public $errorMessage;
-		
-		/**
-		 * @var string
-		 */
-		public $outMessage;
-		
-		/**
-		 * @var string
-		 */
-		public $loginMessage;
-		
-		/**
-		 * @var string
-		 */
-		public $keepme;
-		
-		private $htmlPageView;
-				
-		/**
-		 * @var string
-		 */
+		private $classView;
 		
 		public function __construct() {
-
-			$this -> userName = "Admin";
-			$this -> passWord = "Password";
-			$this -> user = null;
-			$this -> pass = null;
-			$this -> errorMessage = null;
-			$this -> outMessage = null;
-			$this -> loginMessage = null;
-			$this -> keepme = null;
-			$this->htmlPageView = new \htmlpageview\View();
-		}
-		
-		/** Skickar userID till användarnamnsfältet i klassen firstPage i HTMLPageView 
-		 * @return $userID
-		 * **/
-		
-		public static function getUserID(){
-		
-			if(isset($_POST[self::$userID])){
 			
-				return $_POST[self::$userID];
-			}
-		}
-		
-		/** Skickar passID till användarnamnsfältet i klassen firstPage i HTMLPageView
-		 * @return $passID
-		 * **/
-		
-		public static function getPassID(){
-		
-			if(isset($_POST[self::$passID])){
-			
-				return $_POST[self::$passID];
-			}
-		}
-		// Förbereder för inloggning
-		private function loginsuccess(){
-
-			$_SESSION['mySess'] = true;
-			
-			$this->loginMessage;
-
+			$this -> classModel = new \model\Model();
+			$this -> classView = new \view\View();
+			$this-> startEngine();
 		}
 		
 		/**
-		 * errorMassage
-		 * Sätter felmeddelanden 
+		 * Kontrollerar sessions, cookie och
+		 * vad användaren har gjort tidigare
 		 */
-		public function errorMessages(){
+		private function startEngine(){
+			
+			if($this->classModel->CheckIfSessionIsValid()){
 					
-			if($this->user == null){
+				$this->classView->setMessage(\view\View::SESSION_THIEF);
+			}
+			$this->CookieController();
+			
+			if(!$this->classModel->AskLogin() && !$this->classView->TryLogin()){
 				
-				$this->htmlPageView->errorMessage = "<p>Användarnamn saknas</p>";
-			}
-			else if($this->pass == null){
-					
-				$this->htmlPageView->errorMessage = "<p>Lösenord saknas</p>";
-			}
-			else if($this->user != $this->userName || $this->pass != $this->passWord){
-				$this->htmlPageView->errorMessage = "<p>Användarnamn eller Lösenord är felaktig</p>";
-			}
-		}
-		// Kontrollerar inloggning
-		private function checkMyLogin(){
-			
-
-			
-			if(isset($_SESSION['mySess'])){
-			
-				if(isset($_POST["autologinID"])){
-					
-					$this->htmlPageView->keepme = "<p>Dina uppgifter är sparade</p>";
-					$this->MakeCookie();
-				}
-				echo $this->htmlPageView->loginPage();
+			} else if($this->classView->TryToLogout()) {
+				$this->classView->setMessage(\view\View::USER_LOGGED_OUT);
+				$this->classModel->LogoutModel();
 			}
 			else{
-				
-				echo $this->htmlPageView->firstPage();
+				if ($this->classModel->AskLogin()) {					
+					$this->classView->ShowLoginPage();
+				}
+				else{
+					$this->UserAndPassController();
+				}
+			}
+			$this->classView->showPage();
+		}
+		
+		/**
+		 * Kontrollerar vad användaren har matat in
+		 * och skickar meddelande beroende på situation
+		 */
+		private function UserAndPassController(){
+			
+			$userName = trim($this->classView->GetUserName());
+			$passWord = trim($this->classView->GetPassWord());
+			$batCave = $this->classModel->GetBatCave();
+			
+			if (empty($userName)) {
+						
+				$this->classView->setMessage(\view\View::MISSING_USERNAME);	
+			}
+			else if(empty($passWord)) {
+						
+				$this->classView->setMessage(\view\View::MISSING_PASSWORD);
+			}
+			else if ($this->classModel->LoginModel($userName, $passWord)) {
+							
+				if($this->classView->AutoLogin()){
+					$this->classView->MakeCookie($userName, $batCave);
+					$this->classView->setMessage(\view\View::AUTOSAVE_AND_LOGIN);
+				}
+				else{
+					$this->classView->setMessage(\view\View::SUCCESSFUL_LOGIN);
+				}
+				$this->classView->ShowLoginPage();
+			}
+			else {
+				$this->classView->setMessage(\view\View::BAD_USERNAME_PASSWORD);
 			}
 		}
 		
-		private function MakeCookie(){
-			
-			$cookieTime = time() + 25;
-			$mySite = "latana.se";
-			
-			file_put_contents("cookieTime.txt", "$cookieTime");
-			
-	 		setcookie($this->cookieUser, $this->userName, $cookieTime);
-			$cryptPass = md5($this->passWord, $this->safeKey);
+		/**
+		 * Kontrollerar ifall kakorna är satta
+		 * för att sedan kontrollera om deras värden stämmer
+		 */
 		
-			$value = setcookie($this->cookiePass, $cryptPass, $cookieTime);
+		private function CookieController(){
 			
-	 	}
-		// Kollar av kakorna
-		private function checkMyCookies(){
-						
-			if(isset($_COOKIE[$this->cookieUser])){
-			
-				$timeFile = file_get_contents("cookieTime.txt");
-				// Kollar ifall kakan stämmer
-					if(!isset($_SESSION["mySess"]) &&  $timeFile > time() &&
-					$_COOKIE[$this->cookieUser] == $this->userName && 
-					$_COOKIE[$this->cookiePass] == md5($this->passWord,
-					$this->safeKey)){
-			
-					$this->htmlPageView->cookieMessage = "<p>Du blev inloggad med cookie</p>";
-					$this->loginsuccess();
-				}
-				// Kollar ifall kakan är fel
-				if(!isset($_SESSION["mySess"]) &&
-				(isset($_COOKIE[$this->cookieUser]) !== $this->userName)
-				|| $_COOKIE[$this->cookiePass] !== md5($this->passWord, $this->safeKey
-				|| $timeFile < time())){
-					
-					$this->htmlPageView->cookieMessage = "Felaktiga uppgifter i cookie";
-					setcookie("cookieUser", "", time()-9999999);
-					setcookie("cookiePass", "", time()-9999999);
-				}
-			}
-		}
-		// Testar det användaren matat in
-		public function myLogin(){
-			
-			$this->checkMyCookies();
-			
-			if($_POST){
+			$userName = trim($this->classModel->GetCorrectUserName());
+			$batCave = $this->classModel->GetBatCave();
+
+			if(!$this->classModel->AskLogin() && $this->classView->CookieExist()){
 				
-			$this->user = $_POST[self::$userID];
-			$this->pass = $_POST[self::$passID];
-			$this->errorMessages();
-			
-				// Om uppgifterna stämmer
-				if($this->user == $this->userName && $this->pass == $this->passWord){
-						
-					$this->htmlPageView->loginMessage = "<p>inloggning lyckades</p>";
-					$this->loginsuccess();
+				if($this->classView->CheckIfValidCookie($userName, $batCave)){
+
+						$this->classView->setMessage(\view\View::SUCCESSFUL_COOKIE);
+						$this->classModel->LoginSuccess();	
+				}
+				else{
+					$this->classView->setMessage(\view\View::FAILED_COOKIE);
+					$this->classView->DestroyCookie();
 				}
 			}
-			$this->checkMyLogin();
 		}
 	}
